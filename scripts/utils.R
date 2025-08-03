@@ -59,10 +59,10 @@ create_event_schedule <- function(individuals, sim_days = 180) {
         )
       )
     ) |>
-    pull(ev) |>
-    map(as.data.frame)
+    pull(ev) |> 
+    map(as_tibble) |> 
     bind_rows()
-
+  
   return(all_events)
 }
 
@@ -107,4 +107,12 @@ generate_idata <- function(individuals, seed = 202) {
       CL, VC, Q2, V2, Q3, V3, 
       KIN, KOUT, EC50
     )
+}
+
+# simulate observations
+add_obs_noise <- function(df, prop_sd_cp = 0.126, add_sd_cp = 2.09, prop_sd_cyt = 0.2, add_sd_cyt = 0.5) {
+  df |> mutate(
+    DV_CP  = CP * (1 + rnorm(n(), 0, prop_sd_cp)) + rnorm(n(), 0, add_sd_cp),
+    DV_CYT = CYT * (1 + rnorm(n(), 0, prop_sd_cyt)) + rnorm(n(), 0, add_sd_cyt)
+  )
 }
