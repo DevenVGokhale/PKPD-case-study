@@ -60,7 +60,7 @@ create_event_schedule <- function(individuals, sim_days = 180) {
       )
     ) |>
     pull(ev) |> 
-    map(as_tibble) |> 
+    purrr::map(as_tibble) |> 
     bind_rows()
   
   return(all_events)
@@ -76,11 +76,7 @@ generate_idata <- function(individuals, seed = 202) {
     # PK parameters
     ETA_CL = rnorm(N, 0, sqrt(log(1 + (0.263)^2))),
     ETA_VC = rnorm(N, 0, sqrt(log(1 + (0.167)^2))),
-    ETA_V2 = rnorm(N, 0, sqrt(log(1 + (0.747)^2))),
-    ETA_V3 = rnorm(N, 0, sqrt(log(1 + (0.999)^2))),
     # PD parameters
-    ETA_KIN = rnorm(N, 0, sqrt(log(1 + 0.3^2))),
-    ETA_KOUT = rnorm(N, 0, sqrt(log(1 + 0.3^2))),
     ETA_EC50 = rnorm(N, 0, sqrt(log(1 + 0.4^2)))
   )
 
@@ -91,12 +87,10 @@ generate_idata <- function(individuals, seed = 202) {
       CL = 0.153 * (wt / 65)^0.565 * exp(ETA_CL),
       VC = 3.05 * (wt / 65)^0.397 * exp(ETA_VC),
       Q2 = 0.74,
-      V2 = 1.27 * exp(ETA_V2),
+      V2 = 1.27,
       Q3 = 0.092,
-      V3 = 2.10 * exp(ETA_V3),
+      V3 = 2.10,
       # PD params
-      KIN = 10 * exp(ETA_KIN),
-      KOUT = 1 * exp(ETA_KOUT),
       EC50 = 5 * exp(ETA_EC50)
     ) |>
     transmute(

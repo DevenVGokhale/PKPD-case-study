@@ -111,17 +111,8 @@ generate_idata <- function(individuals, seed = 202) {
   iiv <- list(
     CL = 0.3,     # 30% CV
     VC = 0.25,    # 25% CV
-    Q2 = 0.4,     # 40% CV
-    V2 = 0.35,    # 35% CV
-    Q3 = 0.5,     # 50% CV
-    V3 = 0.4,     # 40% CV
-    KIN = 0.2,    # 20% CV
-    KOUT = 0.15,  # 15% CV
     EC50 = 0.4,   # 40% CV
     KG = 0.25,    # 25% CV
-    KS = 0.5,     # 50% CV
-    LAMBDA = 0.3, # 30% CV
-    IC50 = 0.35   # 35% CV
   )
   
   n_subj <- nrow(individuals)
@@ -132,21 +123,14 @@ generate_idata <- function(individuals, seed = 202) {
       # PK parameters
       CL = params$TVCL * exp(rnorm(n_subj, 0, iiv$CL)),
       VC = params$TVVC * exp(rnorm(n_subj, 0, iiv$VC)),
-      Q2 = params$TVQ2 * exp(rnorm(n_subj, 0, iiv$Q2)),
-      V2 = params$TVV2 * exp(rnorm(n_subj, 0, iiv$V2)),
-      Q3 = params$TVQ3 * exp(rnorm(n_subj, 0, iiv$Q3)),
-      V3 = params$TVV3 * exp(rnorm(n_subj, 0, iiv$V3)),
-      
+      Q2 = params$TVQ2,
+      V2 = params$TVV2,
+      Q3 = params$TVQ3,
+      V3 = params$TVV3,
       # PD parameters
       KIN = params$TVKIN * exp(rnorm(n_subj, 0, iiv$KIN)),
       KOUT = params$TVKOUT * exp(rnorm(n_subj, 0, iiv$KOUT)),
       EC50 = params$TVEC50 * exp(rnorm(n_subj, 0, iiv$EC50)),
-      
-      # TGI parameters (for future use)
-      KG = params$TVKG * exp(rnorm(n_subj, 0, iiv$KG)),
-      KS = params$TVKS * exp(rnorm(n_subj, 0, iiv$KS)),
-      LAMBDA = params$TVLAMBDA * exp(rnorm(n_subj, 0, iiv$LAMBDA)),
-      IC50 = params$TVIC50 * exp(rnorm(n_subj, 0, iiv$IC50))
     ) |>
     select(ID = id, everything())  # mrgsolve expects 'ID' column
 }
