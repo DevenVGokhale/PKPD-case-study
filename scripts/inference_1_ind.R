@@ -8,7 +8,15 @@ library(tidyverse)
 build_stan_data <- function(subject_id, sim_obs_path = "data/sim_obs.rds", events_path = "data/events.rds") {
   # Load data
   sim_obs <- read_rds(sim_obs_path)
-  events_data <- read_rds(events_path)
+  sim_obs <- read_rds(sim_obs_path)
+  events_raw <- read_rds(events_path)
+  
+  # Convert events to tibble if it's a list
+  if (is.list(events_raw) && !is.data.frame(events_raw)) {
+    events_data <- purrr::map_dfr(events_raw, as_tibble)
+  } else {
+    events_data <- events_raw
+  }
 
   # Filter subject's data
   subj_obs <- sim_obs |> filter(ID == subject_id)
