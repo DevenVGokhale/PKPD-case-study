@@ -109,10 +109,16 @@ generate_idata <- function(individuals, seed = 202) {
     )
 }
 
-# simulate observations
-add_obs_noise <- function(df, prop_sd_cp = 0.126, add_sd_cp = 2.09, prop_sd_cyt = 0.2, add_sd_cyt = 0.5) {
-  df |> mutate(
-    DV_CP  = CP * (1 + rnorm(n(), 0, prop_sd_cp)) + rnorm(n(), 0, add_sd_cp),
-    DV_CYT = CYT * (1 + rnorm(n(), 0, prop_sd_cyt)) + rnorm(n(), 0, add_sd_cyt)
-  )
+# Function to add observation noise using lognormal error model (proportional only)
+# This matches the Stan model's lognormal likelihood
+add_obs_noise <- function(df, prop_sd_cp = 0.15, prop_sd_cyt = 0.20) {
+  df |>
+    mutate(
+      # Use lognormal error (proportional only) to match Stan model
+      DV_CP = CP * exp(rnorm(n(), 0, prop_sd_cp)),
+      DV_CYT = CYT * exp(rnorm(n(), 0, prop_sd_cyt)),
+      # Ensure non-negative concentrations (though lognormal guarantees this)
+      DV_CP = pmax(DV_CP, 0),
+      DV_CYT = pmax(DV_CYT, 0)
+    )
 }
