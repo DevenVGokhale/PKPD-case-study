@@ -5,17 +5,16 @@ library(posterior)
 
 library(tidyverse)
 source("./scripts/utils.R")
-
-stan_data <- build_stan_data(subject_ids=15)
+#debugonce(build_stan_data)
+stan_data <- build_stan_data_pop(subject_ids=c(21, 15))
 
 # set the path to the model 
-model_path <- "scripts_stan/single_subject_model.stan"
+pop_model_path <- "scripts_stan/population_model.stan"
 
 # Compile the model
-mod <- cmdstan_model(model_path)
+pop_mod <- cmdstan_model(pop_model_path)
 
-# fitting the model to the data 
-fit <- mod$sample(
+fit <- pop_mod$sample(
   data = stan_data,
   chains = 4,
   parallel_chains = 4,

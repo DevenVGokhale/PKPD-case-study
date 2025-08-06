@@ -91,6 +91,8 @@ generate_idata <- function(individuals, seed = 202) {
       Q3 = 0.092,
       V3 = 2.10,
       # PD params
+      KIN = 10,
+      KOUT = 1,
       EC50 = 5 * exp(ETA_EC50)
     ) |>
     transmute(
@@ -115,4 +117,218 @@ add_obs_noise <- function(df, prop_sd_cp = 0.15, prop_sd_cyt = 0.20) {
       DV_CP = pmax(DV_CP, 0),
       DV_CYT = pmax(DV_CYT, 0)
     )
+}
+
+# prepare dataset to be passed on to stan/torsten
+build_stan_data <- function(subject_ids=c(7,15), sim_obs_path = "data/sim_obs.rds", events_path = "data/events.rds") {
+  # Load data
+  sim_obs <- read_rds(sim_obs_path)
+  events_raw <- read_rds(events_path)
+  
+  # Convert events to tibble if it's a list
+  if (is.list(events_raw) && !is.data.frame(events_raw)) {
+    events_data <- purrr::map_dfr(events_raw, as_tibble)
+  } else {
+    events_data <- events_raw
+  }
+
+  # only individuals in subject_ids will be used forward
+  if (!is.null(subject_ids)) {
+    subj_obs <- sim_obs |> filter(ID %in% subject_ids)
+    dose_records <- events_data |> filter(ID %in% subject_ids, evid == 1) 
+  } 
+  
+  # Get dose records (keep original ii/addl)
+  dose_records <- dose_records |> 
+    transmute(
+      id = ID,
+      time = time,
+      amt = amt,
+      evid = evid,
+      cmt = 1L,        # Dosing compartment (like test script)
+      rate = 0,
+      addl = addl,     
+      ii = ii,         
+      ss = 0,
+      DV = NA_real_,
+      cmt_obs = NA_integer_
+    )
+  
+  # CP observations - use cmt = 2 (like test script)
+  cp_obs <- subj_obs |>
+    filter(DV_CP > 0) |>
+    transmute(
+      id = ID,
+      time = time,
+      amt = 0,
+      evid = 0L,
+      cmt = 2L,        
+      rate = 0,
+      addl = 0,
+      ii = 0,
+      ss = 0,
+      DV = DV_CP,
+      cmt_obs = 2L 
+    )
+  
+  # CYT observations - use cmt = 4 (for PD compartment)
+  cyt_obs <- subj_obs |>
+    filter(DV_CYT > 0) |>
+    transmute(
+      id = ID,
+      time = time,
+      amt = 0,
+      evid = 0L,
+      cmt = 4L,        # *** CHANGE: Use cmt=4 for CYT observations ***
+      rate = 0,
+      addl = 0,
+      ii = 0,
+      ss = 0,
+      DV = DV_CYT,
+      cmt_obs = 4L
+    )
+  
+  # Rest stays the same...
+  all_events <- bind_rows(dose_records, cp_obs, cyt_obs) |>
+    arrange(id, time, desc(evid))
+
+  start_end_data <- (
+    all_events |> 
+      mutate(row_index = row_number()) |> 
+      group_by(id) |> 
+      summarise(
+        start = min(row_index),
+        end = max(row_index)) |> 
+      ungroup()  
+  )
+
+  iObs <- which(all_events$evid == 0)
+  nObs <- length(iObs)
+  nt <- nrow(all_events)
+  
+  cObs <- all_events$DV[iObs]
+  cmt_obs <- all_events$cmt_obs[iObs]
+  
+  stan_data <- list(
+    nSubjects = nrow(start_end_data),
+    nt = nt,
+    nObs = nObs,
+    iObs = iObs,
+    time = all_events$time,
+    cObs = cObs,
+    cmt_obs = cmt_obs,
+    start = start_end_data$start,
+    end = start_end_data$end,
+    WT = unique(subj_obs$WT),
+    amt = all_events$amt,
+    rate = all_events$rate,
+    cmt = all_events$cmt,      # Now will be [1,2,4,2,4,2,4,...]
+    evid = all_events$evid,
+    ii = as.integer(all_events$ii),
+    addl = as.integer(all_events$addl),
+    ss = all_events$ss,
+    rel_tol = 1e-6,
+    abs_tol = 1e-6,
+    max_num_steps = 5000
+  )
+  
+  return(stan_data)
+}
+
+# pop model 
+build_stan_data_pop <- function(subject_ids = c(7, 15),
+                                sim_obs_path = "data/sim_obs.rds",
+                                events_path = "data/events.rds") {
+  library(dplyr)
+  library(readr)
+  library(purrr)
+  
+  # Load data
+  sim_obs <- read_rds(sim_obs_path)
+  events_raw <- read_rds(events_path)
+  
+  # Convert events to tibble if it's a list
+  if (is.list(events_raw) && !is.data.frame(events_raw)) {
+    events_data <- purrr::map_dfr(events_raw, as_tibble)
+  } else {
+    events_data <- events_raw
+  }
+
+  # Subset only subjects of interest
+  subj_obs <- sim_obs |> filter(ID %in% subject_ids)
+  dose_records <- events_data |> filter(ID %in% subject_ids, evid == 1)
+
+  # Dose rows
+  dose_records <- dose_records |> 
+    transmute(
+      id = ID,
+      time, amt, evid,
+      cmt = 1L,
+      rate = 0,
+      addl, ii,
+      ss = 0,
+      DV = NA_real_,
+      cmt_obs = NA_integer_
+    )
+
+  # Observation rows
+  cp_obs <- subj_obs |>
+    filter(DV_CP > 0) |>
+    transmute(
+      id = ID,
+      time, amt = 0, evid = 0L,
+      cmt = 2L, rate = 0, addl = 0L, ii = 0, ss = 0,
+      DV = DV_CP, cmt_obs = 2L
+    )
+
+  cyt_obs <- subj_obs |>
+    filter(DV_CYT > 0) |>
+    transmute(
+      id = ID,
+      time, amt = 0, evid = 0L,
+      cmt = 4L, rate = 0, addl = 0L, ii = 0, ss = 0,
+      DV = DV_CYT, cmt_obs = 4L
+    )
+
+  # Combine and sort
+  all_events <- bind_rows(dose_records, cp_obs, cyt_obs) |> 
+    arrange(id, time, desc(evid))
+
+  # Compute indices for solver
+  start_end_data <- all_events |>
+    mutate(row_index = row_number()) |>
+    group_by(id) |>
+    summarise(start = min(row_index), end = max(row_index), .groups = "drop")
+
+  # Observation indices
+  pk_idx <- which(all_events$cmt_obs == 2)
+  pd_idx <- which(all_events$cmt_obs == 4)
+
+  stan_data <- list(
+    nSubjects = nrow(start_end_data),
+    nt = nrow(all_events),
+    nObsPK = length(pk_idx),
+    nObsPD = length(pd_idx),
+    iObsPK = pk_idx,
+    iObsPD = pd_idx,
+    time = all_events$time,
+    amt = all_events$amt,
+    rate = all_events$rate,
+    ii = as.numeric(all_events$ii),  # real
+    evid = all_events$evid,
+    cmt = all_events$cmt,
+    addl = all_events$addl,
+    ss = all_events$ss,
+    cObs = all_events$DV[pk_idx],
+    pdObs = all_events$DV[pd_idx],
+    # cmt_obs = all_events$cmt_obs,
+    start = start_end_data$start,
+    end = start_end_data$end,
+    WT = subj_obs |> group_by(ID) |> summarise(WT = first(WT)) |> pull(WT),
+    rel_tol = 1e-6,
+    abs_tol = 1e-6,
+    max_num_steps = 5000
+  )
+
+  return(stan_data)
 }

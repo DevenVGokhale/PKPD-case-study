@@ -35,15 +35,10 @@ fixed_parameters <- function() {
     TVV3 = 200.0,   # Typical peripheral volume (L)
     
     # PD parameters
-    TVKIN = 100.0,  # Typical cytokine production rate
-    TVKOUT = 0.1,   # Typical cytokine elimination rate
-    TVEC50 = 10.0,  # Typical EC50 for drug effect
-    
-    # TGI parameters
-    TVKG = 0.01,    # Typical tumor growth rate
-    TVKS = 0.05,    # Typical drug killing rate
-    TVLAMBDA = 0.001, # Typical resistance development rate
-    TVIC50 = 5.0    # Typical IC50 for tumor killing
+    TVKIN = 10.0,  # Typical cytokine production rate
+    TVKOUT = 1,   # Typical cytokine elimination rate
+    TVEC50 = 5.0,  # Typical EC50 for drug effect
+
   )
 }
 
