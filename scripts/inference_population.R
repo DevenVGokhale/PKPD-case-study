@@ -3,7 +3,6 @@ library(tidyverse)
 library(cmdstanr)
 library(posterior)
 
-library(tidyverse)
 source("./scripts/utils.R")
 #debugonce(build_stan_data)
 stan_data <- build_stan_data_pop(subject_ids=c(21, 15))

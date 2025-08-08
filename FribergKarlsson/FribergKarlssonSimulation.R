@@ -1,10 +1,11 @@
 ## Template to simulate PKPD data
 ## Fribgerg-Karlsson population model
-rm(list = ls())
+
 modelName <- "fribergKarlsson"
 
 library(mrgsolve)
-#library(rstan)
+library(rstan)
+library(tidyverse)
 
 ## Simulate ME-2 plasma concentrations and ANC values
 ## using mrgsolve.
@@ -100,7 +101,8 @@ p1 + geom_point() + geom_line() +
   labs(x = "time (h)", y = "ME-2 plasma concentration (ng/mL)") +
   theme(text = element_text(size = 12), axis.text = element_text(size = 12),
         legend.position = "none", strip.text = element_text(size = 8)) +
-  facet_wrap(~ID)
+  facet_wrap(~ID) +
+  theme_bw()
 
 p1 <- ggplot(xdata %>% filter(!is.na(DV2)), aes(x = time, y = DV2))
 p1 + geom_point() + geom_line() +
@@ -108,7 +110,8 @@ p1 + geom_point() + geom_line() +
        y = "ANC") +
   theme(text = element_text(size = 12), axis.text = element_text(size = 12),
         legend.position = "none", strip.text = element_text(size = 8)) +
-  facet_wrap(~ID)
+  facet_wrap(~ID) +
+  theme_bw()
 
 ## Indices of records containing observed concentrations
 iObsPK <- with(xdata, (1:nrow(xdata))[!is.na(DV1) & evid == 0])
@@ -175,23 +178,61 @@ data <- with(xdata,
              ))
 
 ## create initial estimates
-init <- function(){
-  list(CLHat = abs(rnorm(1, 0, 20)),
-       QHat = abs(rnorm(1, 0, 20)),
-       V1Hat = abs(rnorm(1, 0, 100)),
-       V2Hat = abs(rnorm(1, 0, 1000)),
-       kaHat = abs(rnorm(1, 0, 5)),
-       sigma = 0.2,
-       alphaHat = exp(rnorm(1, log(alphaHatPrior), alphaHatPriorCV)),
-       mttHat = exp(rnorm(1, log(mttHatPrior), mttHatPriorCV)),
-       circ0Hat = exp(rnorm(1, log(circ0HatPrior), circ0HatPriorCV)),
-       gamma = exp(rnorm(1, log(gammaPrior), gammaPriorCV)),
-       sigmaNeut = 0.2,
-       L = diag(nIIV),
-       omega = exp(rnorm(nIIV, log(0.05), 0.5)),
-       etaStd = matrix(rep(0, nIIV * nSub), nrow = nIIV))
+init <- function(chain_id = 1) {
+  set.seed(42*chain_id)
+  nIIV <- 7
+  nSub <- 15  # Adjust if your data uses a different value
+
+  list(
+    ## PK parameter modes (centered around prior medians)
+    CLHat = 10 * exp(rnorm(1, 0, 0.1)),
+    QHat = 15 * exp(rnorm(1, 0, 0.1)),
+    V1Hat = 35 * exp(rnorm(1, 0, 0.1)),
+    V2Hat = 105 * exp(rnorm(1, 0, 0.1)),
+    
+    ## ka with constraint to avoid flip-flop: must be > lambda_1
+    kaHat = 2 * exp(rnorm(1, 0, 0.05)),  # tightly centered
+
+    ## PD parameters
+    mttHat = 125 * exp(rnorm(1, 0, 0.05)),
+    circ0Hat = 5 * exp(rnorm(1, 0, 0.05)),
+    alphaHat = 2e-4 * exp(rnorm(1, 0, 0.05)),
+    gamma = 0.17 * exp(rnorm(1, 0, 0.05)),
+    
+    ## Residual standard deviations
+    sigma = 0.2,
+    sigmaNeut = 0.2,
+
+    ## Covariance structure
+    L = diag(nIIV),  # Start with identity (no correlation)
+    
+    ## IIVs — reasonable, not extreme
+    omega = rep(0.2, nIIV),
+
+    ## Random effects centered at 0, add jitter to avoid flat posterior
+    etaStd = matrix(rnorm(nIIV * nSub, 0, 0.05), nrow = nIIV)
+  )
 }
 
-# with(data, stan_rdump(ls(data), file = paste0(modelName,".data.R")))
-# inits <- init()
-# with(inits, stan_rdump(ls(inits), file = paste0(modelName,".init.R")))
+init_2 <- function(chain_id = 1) {
+  set.seed(42*chain_id)
+  nIIV <- 7
+  nSub <- 15
+
+  list(
+    CLHat = 10,
+    QHat = 15,
+    V1Hat = 35,
+    V2Hat = 105,
+    kaHat = 2.0,
+    mttHat = 125,
+    circ0Hat = 5,
+    alphaHat = 2e-4,
+    gamma = 0.17,
+    sigma = 0.1,
+    sigmaNeut = 0.1,
+    L = diag(nIIV),
+    omega = rep(0.2, nIIV),
+    etaStd = matrix(0, nrow = nIIV, ncol = nSub)
+  )
+}
