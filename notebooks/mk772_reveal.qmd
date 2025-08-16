@@ -30,6 +30,9 @@ suppressPackageStartupMessages({
   library(broom.mixed)
   library(gt)
   library(stringr)
+  library(patchwork)
+  library(xpose)
+  library(xpose.nlmixr2)
 })
 
 # ---- Plot theme & defaults ----
@@ -86,6 +89,8 @@ data_paths <- c(
   "../data/pkpd_3cmt_transit.rds",
   "../data/pkpd_3cmt_transit.csv"
 )
+
+fit <- read_rds("../results/fit_3cmt_transit.rds")
 
 path_data <- first_existing(data_paths)
 if (is.na(path_data)) stop("No data file found in expected locations.")
@@ -197,6 +202,21 @@ pk %>%
 
 > Goal here is to *show* a fit and a clean parameter table. You can load a saved fit if you have one, or run SAEM inline (may take a few minutes). On slides, prefer loading a saved result.
 
+## Traceplots 
+
+```{r}
+#| label: saem-traceplots
+#| message: false
+#| warning: false
+#| fig-cap: "SAEM parameter traceplots"
+
+library(nlmixr2)      # re-exports traceplot()
+library(nlmixr2plot)  # plotting backend
+
+traceplot(fit) + labs(x = "Iteration", y = "Value") + theme_mk772()
+```
+
+
 ## Tidy parameter table
 
 ```{r}
@@ -204,7 +224,6 @@ pk %>%
 #| tbl-cap: "Fixed effects (back-transformed where applicable) and variance components"
 library(broom.mixed)
 library(gt)
-fit <- read_rds("../results/fit_3cmt_transit.rds")
 
 # read in all the values for the paramters 
 fx <- tidy(fit, effects = "fixed")
@@ -281,22 +300,180 @@ all_params %>%
 
 ```
 
-## (Optional) Quick GOF/VPC plots
+## Goodness of fit 1 -- Predicted v/s DV
 
 ```{r}
-#| label: gof-vpc
-#| eval: false
-# library(nlmixr2plot)
-# gof(fit)         # classic GOF
-# vpc(fit, psn = TRUE)  # prediction-corrected VPC
+#| label: pred v/s DV
+#| eval: true
+#| message: false
+
+
+# prepare data for the gof plots
+library(xpose)
+library(xpose.nlmixr2)
+library(patchwork)
+
+# load the gof data and xpose it
+xp_fit <- xpose_data_nlmixr2(fit)
+
+plt1 <- (
+    dv_vs_pred(xp_fit, type = "p") + 
+        labs(title = "", subtitle = "", caption = "") + 
+        theme_mk772()
+        )
+plt2 <- (
+    dv_vs_ipred(xp_fit, type = "p") +
+        labs(title = "", subtitle = "", caption = "") + 
+        theme_mk772()
+    )
+
+plt1 | plt2
 ```
 
+## Goodness of fit 2 -- IWRES
+
+```{r}
+
+#| label: pred v/s DV
+#| eval: false
+#| message: false
+plt1 <- (
+    res_vs_pred(xp_fit, res = "IWRES", type="p") + 
+        labs(title = "", subtitle = "", caption = "") + 
+        theme_mk772()
+        )
+
+
+xp_tad <- set_var_types(xp_fit, idv = "TAD") 
+        
+plt2  <- (
+    res_vs_idv(xp_tad, res = "IWRES", type = "p") + 
+        labs(title = "", subtitle = "", caption= "") + 
+        theme_mk772()
+        )
+
+
+plt1 | plt2
+```
 ---
+
+## Goodness of fit 3 -- iwres
+
+```{r}
+#| label: iwres-health
+#| message: false
+#| warning: false
+
+library(xpose)
+
+p_iwres_hist <- res_distrib(
+  xp_fit, res = "IWRES", type = "h", caption = NULL) +
+    labs(y = "Density", title = "", subtitle = "", caption = "") +
+    theme_mk772() 
+
+p_iwres_qq <- res_qq(
+  xp_fit, res = "IWRES", type = "p", caption = NULL) + 
+    labs(title = "", subtitle = "", y = "Quantiles of IWRES") +
+    theme_mk772() 
+
+(p_iwres_hist | p_iwres_qq) 
+```
+
+## Goodness of fit 4 -- eta 
+
+```{r}
+#| label: eta-health
+#| message: false
+#| warning: false
+
+library(xpose.nlmixr2)
+library(xpose)
+library(patchwork)
+
+p_eta_hist <- (
+    eta_distrib(
+        xp_fit, type = "h", ncol = 2, 
+        nrow = 1, page = 1) +
+    labs(title = "", subtitle = "", caption = "", 
+         x = "Value", y = "Density") + 
+    theme_mk772()
+    )
+
+p_eta_qq <- (
+    eta_qq(
+        xp_fit, type = "p", ncol = 2, 
+        nrow = 1, page = 1, caption = NULL) + 
+    labs(title = "", subtitle = "") + 
+    theme_mk772()
+    )
+
+# 2×2 layout: top row = two ETA histograms; bottom row = two ETA QQ plots
+(p_eta_hist / p_eta_qq)
+```
+
+## VPC 1: Visual predictive checks
+
+```{r}
+#| label: vpc-pc
+#| message: false
+#| warning: false
+#| fig-cap: "Prediction-corrected VPC (n = 300)"
+
+library(nlmixr2plot)
+library(patchwork)
+
+set.seed(42)
+
+vpc1 <- vpcPlot(
+  fit,                 # your nlmixr2 SAEM fit object
+  n = 300,             # number of simulation replicates
+  pred_corr = TRUE,    # prediction-corrected VPC
+  idv = "time",         # independent variable column in your data
+  show=list(obs_dv=TRUE)
+) + labs(x = "Time", y = "DV") + theme_mk772()
+
+vpc2 <- vpcPlot(
+  fit,                 # your nlmixr2 SAEM fit object
+  n = 300,             # number of simulation replicates
+  pred_corr = TRUE,    # prediction-corrected VPC
+  idv = "tad",         # independent variable column in your data
+  show=list(obs_dv=TRUE)
+) + labs(x = "Time after dose", y = "DV") + theme_mk772()
+
+
+vpc1 / vpc2
+```
+ 
+## VPC 2: Individual fit:
+
+```{r}
+ 
+ df <- fit |> as_tibble()
+
+  # for reproducibility
+ids_10 <- df |> distinct(ID) |> slice_sample(n = 6) |> pull(ID)
+ind_df <- df |> filter(ID %in% ids_10)
+
+plt <- ind_df |>
+  ggplot(aes(x = TIME)) +
+  geom_point(aes(y = DV), alpha = 0.6, size = 1) +
+  geom_line(aes(y = IPRED, linetype = "IPRED")) +
+  geom_line(aes(y = PRED,  linetype = "PRED")) +
+  scale_linetype_manual(values = c(IPRED = 1, PRED = 2), name = "") +
+  facet_wrap(~ ID, ncol = 2, scales = "free_y") +
+  labs(x = "Time", y = "DV", title = "Individual fits (6 random IDs)")+
+  theme_mk772() +
+  theme(legend.position = "bottom")
+
+plt
+
+```  
+
 
 # Next steps (placeholders for new chats)
 
-- **1) Model adequacy** — GOF, pcVPC, stratified VPCs.
-- **2) Uncertainty** — bootstrap for parameters and exposures.
+
+- **2) Uncertainty** — bootstrap for parameters and exposures. -- Not doing it
 - **3) Regimen simulations** — exposure tables (AUC, Cmax, Ctrough).
 - **4) PTA curves** — probability of target attainment vs regimen.
 - **5) Power/sample size** — simulation-based operating characteristics.
