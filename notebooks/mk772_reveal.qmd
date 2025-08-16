@@ -1,0 +1,305 @@
+---
+title: "MK772 — 3‑Compartment Transit PK: Reconstruction & Design"
+format:
+  revealjs:
+    slide-number: true
+    code-overflow: wrap
+    code-line-numbers: true
+    incremental: true
+    footer: "nlmixr2 • rxode2 • Quarto"
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+editor: source
+---
+
+# 0. Setup
+
+```{r}
+#| label: setup
+#| include: false
+# Packages
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(readr)
+  library(glue)
+  library(nlmixr2)
+  library(nlmixr2est)
+  library(broom.mixed)
+  library(gt)
+  library(stringr)
+})
+
+# ---- Plot theme & defaults ----
+# A clean, presentation-friendly theme and sensible defaults
+
+theme_mk772 <- function(base_size = 14, base_family = "") {
+  ggplot2::theme_minimal(base_size = base_size, base_family = base_family) +
+    ggplot2::theme(
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.grid.major = ggplot2::element_line(linewidth = 0.3),
+      strip.background = ggplot2::element_rect(fill = "#f6f7f9", color = NA),
+      strip.text = ggplot2::element_text(face = "bold"),
+      plot.title.position = "plot",
+      plot.title = ggplot2::element_text(face = "bold"),
+      legend.title = ggplot2::element_text(),
+      legend.position = "right"
+    )
+}
+
+# Set the theme globally for the entire notebook/presentation
+ggplot2::theme_set(theme_mk772())
+
+# Sensible defaults for geoms (can tweak later)
+try(ggplot2::update_geom_defaults("line",  list(linewidth = 0.7, alpha = 0.9)), silent = TRUE)
+try(ggplot2::update_geom_defaults("point", list(size = 1.2,  alpha = 0.8)), silent = TRUE)
+
+# Helper scale used a lot in PK plots
+scale_y_conc <- function(...) ggplot2::scale_y_continuous(trans = scales::pseudo_log_trans(), ...)
+
+# Helper: load first existing file
+first_existing <- function(paths) paths[file.exists(paths)][1]
+
+# Standardize columns for plotting/fit
+standardize_pk <- function(df){
+  # Try to discover the DV column (concentration)
+  dv_col <- dplyr::case_when(
+    "DV" %in% names(df) ~ "DV",
+    "DV_CP" %in% names(df) ~ "DV_CP",
+    "Cp" %in% names(df) ~ "Cp",
+    TRUE ~ NA_character_
+  )
+  stopifnot(!is.na(dv_col))
+  df %>%
+    rename(
+      ID   = tidyselect::any_of(c("ID","id")),
+      TIME = tidyselect::any_of(c("TIME","time"))
+    ) %>%
+    mutate(DV = .data[[dv_col]]) %>%
+    arrange(ID, TIME)
+}
+
+# Paths (relative to repo root)
+data_paths <- c(
+  "../data/pkpd_3cmt_transit.rds",
+  "../data/pkpd_3cmt_transit.csv"
+)
+
+path_data <- first_existing(data_paths)
+if (is.na(path_data)) stop("No data file found in expected locations.")
+
+raw <- if (grepl("\\.rds$", path_data)) readr::read_rds(path_data) else readr::read_csv(path_data, show_col_types = FALSE)
+
+pk <- standardize_pk(raw)
+
+# A lightweight nlmixr2 model definition matching the 3‑compartment + transit structure
+pk3cmt_transit <- function(){
+  ini({
+    tcl   <- log(14)       # CL (L/h) baseline
+    tvc   <- log(60)       # Vc (L)
+    tktr  <- log((3+1)/10) # ktr derived from NTR=3, MTT=10h (modify during refinement)
+
+    eta.cl ~ 0.09
+    eta.vc ~ 0.04
+
+    prop.err.cp <- 0.07
+  })
+  model({
+    # Fixed peripherals; keep simple for demo; you can estimate later
+    Q2   <- 6.0
+    Q3   <- 5.0
+    Vp1  <- 30
+    Vp2  <- 40
+
+    # Covariate: allometry on CL (expects WT in dataset; if absent, assumes 70 kg)
+    WT1 <- ifelse(exists("WT"), WT, 70)
+    CL <- exp(tcl + eta.cl) * (WT1/70)^0.75
+    Vc <- exp(tvc + eta.vc)
+    ktr <- exp(tktr)
+
+    # Compartments: A0, TR1-TR3, A1 (central), A2/A3 (peripherals)
+    d/dt(A0)  = -ktr * A0;
+    d/dt(TR1) =  ktr * A0 - ktr * TR1;
+    d/dt(TR2) =  ktr * TR1 - ktr * TR2;
+    d/dt(TR3) =  ktr * TR2 - ktr * TR3;
+
+    d/dt(A1) = ktr * TR3 - (CL / Vc) * A1
+               - Q2 / Vc * A1 + Q2 / Vp1 * A2
+               - Q3 / Vc * A1 + Q3 / Vp2 * A3;
+    d/dt(A2) = Q2 / Vc * A1 - Q2 / Vp1 * A2;
+    d/dt(A3) = Q3 / Vc * A1 - Q3 / Vp2 * A3;
+
+    Cp <- A1 / Vc
+    Cp ~ prop(prop.err.cp) | A1
+  })
+}
+```
+
+---
+
+# 0.1 Data overview
+
+## What’s loaded
+
+```{r}
+#| label: data-overview
+#| tbl-cap: "Head of standardized PK data"
+cat(glue("Using data file: {path_data}\n"))
+
+pk %>% 
+  mutate(across(c(ID), as.integer)) %>%
+  head(10)
+```
+
+## Quick counts
+
+```{r}
+#| label: data-counts
+pk_counts <- pk %>% summarise(n_subjects = n_distinct(ID), n_obs = sum(is.finite(DV)))
+pk_counts
+```
+
+## Spaghetti plot (random sample of subjects)
+
+```{r}
+#| label: spaghetti
+set.seed(1)
+ids <- pk %>% distinct(ID) %>% slice_sample(n = 12) %>% pull(ID)
+
+pk %>%
+  filter(ID %in% ids) %>%
+  ggplot(aes(TIME, DV, group = ID)) +
+  geom_line(alpha = 0.6) +
+  geom_point(size = 0.6, alpha = 0.6) +
+  facet_wrap(~ID, scales = "free_y") +
+  scale_y_continuous(trans = scales::pseudo_log_trans()) +
+  labs(title = "Observed concentrations (subset)", x = "Time", y = "DV (concentration)") +
+  theme_bw(base_size = 12)
+```
+
+## Sampling time distribution
+
+```{r}
+#| label: time-hist
+pk %>%
+  filter(is.finite(TIME)) %>%
+  ggplot(aes(TIME)) +
+  geom_histogram(bins = 40) +
+  labs(title = "Sampling time histogram", x = "Time", y = "Count") +
+  theme_bw(base_size = 12)
+```
+
+---
+
+# 0.2 Demonstrate model fit (estimates in tidy format)
+
+> Goal here is to *show* a fit and a clean parameter table. You can load a saved fit if you have one, or run SAEM inline (may take a few minutes). On slides, prefer loading a saved result.
+
+## Tidy parameter table
+
+```{r}
+#| label: tidy-pars
+#| tbl-cap: "Fixed effects (back-transformed where applicable) and variance components"
+library(broom.mixed)
+library(gt)
+fit <- read_rds("../results/fit_3cmt_transit.rds")
+
+# read in all the values for the paramters 
+fx <- tidy(fit, effects = "fixed")
+rp <- tidy(fit, effects = "ran_pars") |> dplyr::filter(group=="ID")  
+sg <- tidy(fit, effects = "ran_pars") |> dplyr::filter(group!="ID")  
+
+# # --- Fixed effects: back-transform log-params ---
+bt_map <- c(tcl = "CL", tvc = "Vc", tktr = "ktr")
+fixed_tbl <- fx %>%
+  transmute(
+    term,
+    estimate,
+    se = dplyr::coalesce(std.error, NA_real_)
+  ) %>%
+  mutate(
+    Parameter   = dplyr::recode(term, !!!bt_map, .default = term),
+    Estimate_bt = if_else(term %in% names(bt_map), exp(estimate), estimate),
+    SE_bt       = if_else(term %in% names(bt_map) & !is.na(se), exp(estimate) * se, se),
+    LCI         = if_else(!is.na(SE_bt), Estimate_bt * exp(-1.96 * dplyr::coalesce(se, 0)), NA_real_),
+    UCI         = if_else(!is.na(SE_bt), Estimate_bt * exp( 1.96 * dplyr::coalesce(se, 0)), NA_real_)
+  ) %>%
+  transmute(
+    Component = "Fixed effects",
+    Parameter,
+    Estimate  = Estimate_bt,
+    SE        = SE_bt,
+    LCI, UCI,
+    Notes     = NA_character_
+  )
+
+# --- Random effects: parse SDs (diag) and correlations (off-diag) ---
+# broom.mixed typically returns columns like: effect, group, term, estimate, component (\"sd\", \"cor\", or \"sdcor\")
+iiv_var <- NULL
+iiv_cor <- NULL
+
+
+# SDs -> convert to variances; add %CV note (SD ~ omega on ETA-scale)
+iiv_var <- rp |> 
+    transmute(
+        Component = "Random effects (Ω)",
+        Parameter = dplyr::case_when(
+            term == "sd__eta.cl" ~ "IIV CL",
+            term == "sd__eta.vc" ~ "IIV Vc",
+            TRUE ~ term),
+        Estimate  = estimate^2,  # variance
+        SE        = NA_real_, LCI = NA_real_, UCI = NA_real_,
+        Notes     = paste0("CV%≈ ", sprintf("%.1f", estimate * 100))
+        )
+
+# --- Residual (Σ) ---
+sigma_tbl <- sg |> 
+    transmute(
+      Component = "Residual error (Σ)",
+      Parameter = "Proportional",
+      Estimate  = estimate,
+      SE = NA_real_,
+      Notes = NA_character_
+    )
+
+# --- Combine and render ---
+all_params <- bind_rows(fixed_tbl, iiv_var, iiv_cor, sigma_tbl) %>%
+  mutate(Component = factor(Component, levels = c("Fixed effects","Random effects (Ω)","Residual error (Σ)"))) %>%
+  arrange(Component, desc(str_detect(Parameter, "^IIV\\(")), Parameter)
+
+all_params %>%
+  arrange(factor(Component, levels = c("Fixed effects","Random effects (Ω)","Residual error (Σ)")),
+          desc(grepl("^IIV\\(", Parameter)),  # optional ordering
+          Parameter) %>%
+  gt(groupname_col = "Component") %>%   # <-- turns Component into group headers
+  cols_hide("Component") %>%            # <-- hides the repeating column
+  fmt_number(c(Estimate, SE, LCI, UCI), decimals = 3) %>%
+  tab_options(row_group.as_column = FALSE) %>%  # default; keeps headers in the margin
+  opt_row_striping()
+
+```
+
+## (Optional) Quick GOF/VPC plots
+
+```{r}
+#| label: gof-vpc
+#| eval: false
+# library(nlmixr2plot)
+# gof(fit)         # classic GOF
+# vpc(fit, psn = TRUE)  # prediction-corrected VPC
+```
+
+---
+
+# Next steps (placeholders for new chats)
+
+- **1) Model adequacy** — GOF, pcVPC, stratified VPCs.
+- **2) Uncertainty** — bootstrap for parameters and exposures.
+- **3) Regimen simulations** — exposure tables (AUC, Cmax, Ctrough).
+- **4) PTA curves** — probability of target attainment vs regimen.
+- **5) Power/sample size** — simulation-based operating characteristics.
+- **6) Optimal sampling** — schedule tweaks and RSE impact.
+- **7) Robustness** — sensitivity to NTR/MTT and error model.
+- **8) Shiny** — wrap dose/interval/WT → exposure/PTA UI.

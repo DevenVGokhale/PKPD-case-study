@@ -112,6 +112,13 @@ fit <- nlmixr2(
 print(fit)
 fit$omegaR
 plot(fit)
-#saveRDS(fit, file = "results/fit_no_induction.rds")
 
-#cat("\n✅ Estimation complete and saved.\n")
+vpcPlot(fit, n=100,show=list(obs_dv=TRUE), log_y=TRUE, log_y_min=0.5,
+        xlab="Time (h)",
+        ylab="Concentration (mg/L)", pred_corr = TRUE, 
+        title = "Prediction Corrected VPC") +
+  theme_bw2()
+
+saveRDS(fit, file = "results/fit_3cmt_transit.rds")
+
+cat("\n✅ Estimation complete and saved.\n")
