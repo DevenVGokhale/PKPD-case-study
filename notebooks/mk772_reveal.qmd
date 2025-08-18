@@ -1,12 +1,14 @@
 ---
 title: "MK772 — 3‑Compartment Transit PK: Reconstruction & Design"
+author: Deven Gokhale
 format:
-  revealjs:
-    slide-number: true
+  revealjs: 
+    theme: solarized
     code-overflow: wrap
+    code-fold: true
+    transition: fade
     code-line-numbers: true
     incremental: true
-    footer: "nlmixr2 • rxode2 • Quarto"
 execute:
   echo: true
   warning: false
@@ -15,7 +17,7 @@ execute:
 editor: source
 ---
 
-# 0. Setup
+# Introduction
 
 ```{r}
 #| label: setup
@@ -37,30 +39,8 @@ suppressPackageStartupMessages({
 
 # ---- Plot theme & defaults ----
 # A clean, presentation-friendly theme and sensible defaults
-
-theme_mk772 <- function(base_size = 14, base_family = "") {
-  ggplot2::theme_minimal(base_size = base_size, base_family = base_family) +
-    ggplot2::theme(
-      panel.grid.minor = ggplot2::element_blank(),
-      panel.grid.major = ggplot2::element_line(linewidth = 0.3),
-      strip.background = ggplot2::element_rect(fill = "#f6f7f9", color = NA),
-      strip.text = ggplot2::element_text(face = "bold"),
-      plot.title.position = "plot",
-      plot.title = ggplot2::element_text(face = "bold"),
-      legend.title = ggplot2::element_text(),
-      legend.position = "right"
-    )
-}
-
-# Set the theme globally for the entire notebook/presentation
-ggplot2::theme_set(theme_mk772())
-
-# Sensible defaults for geoms (can tweak later)
-try(ggplot2::update_geom_defaults("line",  list(linewidth = 0.7, alpha = 0.9)), silent = TRUE)
-try(ggplot2::update_geom_defaults("point", list(size = 1.2,  alpha = 0.8)), silent = TRUE)
-
-# Helper scale used a lot in PK plots
-scale_y_conc <- function(...) ggplot2::scale_y_continuous(trans = scales::pseudo_log_trans(), ...)
+source("./scripts_nlmixr2/plot_theme.R")
+theme_mk772 <- theme_mk772_solarized("light")
 
 # Helper: load first existing file
 first_existing <- function(paths) paths[file.exists(paths)][1]
@@ -86,11 +66,11 @@ standardize_pk <- function(df){
 
 # Paths (relative to repo root)
 data_paths <- c(
-  "../data/pkpd_3cmt_transit.rds",
-  "../data/pkpd_3cmt_transit.csv"
+  "./data/pkpd_3cmt_transit.rds",
+  "./data/pkpd_3cmt_transit.csv"
 )
 
-fit <- read_rds("../results/fit_3cmt_transit.rds")
+fit <- read_rds("./results/fit_3cmt_transit.rds")
 
 path_data <- first_existing(data_paths)
 if (is.na(path_data)) stop("No data file found in expected locations.")
@@ -98,135 +78,86 @@ if (is.na(path_data)) stop("No data file found in expected locations.")
 raw <- if (grepl("\\.rds$", path_data)) readr::read_rds(path_data) else readr::read_csv(path_data, show_col_types = FALSE)
 
 pk <- standardize_pk(raw)
-
-# A lightweight nlmixr2 model definition matching the 3‑compartment + transit structure
-pk3cmt_transit <- function(){
-  ini({
-    tcl   <- log(14)       # CL (L/h) baseline
-    tvc   <- log(60)       # Vc (L)
-    tktr  <- log((3+1)/10) # ktr derived from NTR=3, MTT=10h (modify during refinement)
-
-    eta.cl ~ 0.09
-    eta.vc ~ 0.04
-
-    prop.err.cp <- 0.07
-  })
-  model({
-    # Fixed peripherals; keep simple for demo; you can estimate later
-    Q2   <- 6.0
-    Q3   <- 5.0
-    Vp1  <- 30
-    Vp2  <- 40
-
-    # Covariate: allometry on CL (expects WT in dataset; if absent, assumes 70 kg)
-    WT1 <- ifelse(exists("WT"), WT, 70)
-    CL <- exp(tcl + eta.cl) * (WT1/70)^0.75
-    Vc <- exp(tvc + eta.vc)
-    ktr <- exp(tktr)
-
-    # Compartments: A0, TR1-TR3, A1 (central), A2/A3 (peripherals)
-    d/dt(A0)  = -ktr * A0;
-    d/dt(TR1) =  ktr * A0 - ktr * TR1;
-    d/dt(TR2) =  ktr * TR1 - ktr * TR2;
-    d/dt(TR3) =  ktr * TR2 - ktr * TR3;
-
-    d/dt(A1) = ktr * TR3 - (CL / Vc) * A1
-               - Q2 / Vc * A1 + Q2 / Vp1 * A2
-               - Q3 / Vc * A1 + Q3 / Vp2 * A3;
-    d/dt(A2) = Q2 / Vc * A1 - Q2 / Vp1 * A2;
-    d/dt(A3) = Q3 / Vc * A1 - Q3 / Vp2 * A3;
-
-    Cp <- A1 / Vc
-    Cp ~ prop(prop.err.cp) | A1
-  })
-}
 ```
 
----
+# Data overview
 
-# 0.1 Data overview
-
-## What’s loaded
-
-```{r}
-#| label: data-overview
-#| tbl-cap: "Head of standardized PK data"
-cat(glue("Using data file: {path_data}\n"))
-
-pk %>% 
-  mutate(across(c(ID), as.integer)) %>%
-  head(10)
-```
-
-## Quick counts
-
-```{r}
-#| label: data-counts
-pk_counts <- pk %>% summarise(n_subjects = n_distinct(ID), n_obs = sum(is.finite(DV)))
-pk_counts
-```
-
-## Spaghetti plot (random sample of subjects)
-
+## Data Overview
+:::: columns
+::: {.column width="40%"}
+ - Using a population of 50 individuals
+ - Individuals demonstrated a wide  weight distribution
+ - A rich PK profile was used sampled every 6 hours over 10 days
+ - A 600 mg oral dose was admistered every 72 hours
+:::  
+::: {.column width="60%"}  
 ```{r}
 #| label: spaghetti
-set.seed(1)
-ids <- pk %>% distinct(ID) %>% slice_sample(n = 12) %>% pull(ID)
+#| fig-height: 7
+pk_profiles <- (
+  pk |> 
+    ggplot(aes(TIME, DV, group = ID)) +
+    geom_line(alpha = 0.6) +
+    geom_point(size = 0.6, alpha = 0.6) +
+    scale_y_continuous(trans = scales::pseudo_log_trans()) +
+    labs(x = "Time", y = "MK772 Concentration\n(mg/mL)") 
+  )
 
-pk %>%
-  filter(ID %in% ids) %>%
-  ggplot(aes(TIME, DV, group = ID)) +
-  geom_line(alpha = 0.6) +
-  geom_point(size = 0.6, alpha = 0.6) +
-  facet_wrap(~ID, scales = "free_y") +
-  scale_y_continuous(trans = scales::pseudo_log_trans()) +
-  labs(title = "Observed concentrations (subset)", x = "Time", y = "DV (concentration)") +
-  theme_bw(base_size = 12)
+ind_wts <- (
+  pk |> 
+    ggplot(aes(WT)) +
+    geom_histogram() +
+    labs(x = "Weight (Kg)", y = "Count") 
+)
+
+ind_wts / pk_profiles + 
+  plot_layout(heights = c(1,3)) &
+  theme_bw2()
+
 ```
+:::
+::::
 
-## Sampling time distribution
+# Fitting Compartmental models 
 
-```{r}
-#| label: time-hist
-pk %>%
-  filter(is.finite(TIME)) %>%
-  ggplot(aes(TIME)) +
-  geom_histogram(bins = 40) +
-  labs(title = "Sampling time histogram", x = "Time", y = "Count") +
-  theme_bw(base_size = 12)
-```
+- A number of struturally diverse compartmental models were fit to the population of subjects
+- Individuals weight was added as a covaraiate to account for allometric scaling 
+- Indiviual effects were added to capture inter-individual variability
+- Robust calibration was attained by iteratively running SAEM and FOCEi algorithms
+- For each model essential PK parameters were estimated using the available PK profiles
 
----
+## Add model structures image
 
-# 0.2 Demonstrate model fit (estimates in tidy format)
 
-> Goal here is to *show* a fit and a clean parameter table. You can load a saved fit if you have one, or run SAEM inline (may take a few minutes). On slides, prefer loading a saved result.
-
-## Traceplots 
+## Best model: Trace plot
 
 ```{r}
 #| label: saem-traceplots
 #| message: false
 #| warning: false
-#| fig-cap: "SAEM parameter traceplots"
-
-library(nlmixr2)      # re-exports traceplot()
-library(nlmixr2plot)  # plotting backend
-
-traceplot(fit) + labs(x = "Iteration", y = "Value") + theme_mk772()
+traceplot(fit) + labs(x = "Iteration", y = "Value") + theme_bw()
 ```
 
-
-## Tidy parameter table
+## Parameter estimates
 
 ```{r}
-#| label: tidy-pars
-#| tbl-cap: "Fixed effects (back-transformed where applicable) and variance components"
-library(broom.mixed)
-library(gt)
-
-# read in all the values for the paramters 
+#| results: "hide"
+#| echo: false
 fx <- tidy(fit, effects = "fixed")
+```
+::: columns
+::: {.column width = "40%"}
+ - True parameter values were recovered for the best fitting model
+ - Estimated CV% were marginally inflated but well within the accpetable ranges
+ - Residual error was accurately recovered
+:::
+::: {.column width = "60%"}
+```{r}
+#| label: tidy-pars
+#| message: false
+#| warning: false
+#| tbl-cap: "Fixed effects (back-transformed where applicable) and variance components"
+
 rp <- tidy(fit, effects = "ran_pars") |> dplyr::filter(group=="ID")  
 sg <- tidy(fit, effects = "ran_pars") |> dplyr::filter(group!="ID")  
 
@@ -299,129 +230,144 @@ all_params %>%
   opt_row_striping()
 
 ```
-
-## Goodness of fit 1 -- Predicted v/s DV
-
+:::
+:::
+# Model Performance
+## Predicted v/s Obseverved
 ```{r}
-#| label: pred v/s DV
-#| eval: true
+#| label: generate xpose object
+#| echo: false
+#| results: "hide"
 #| message: false
 
-
-# prepare data for the gof plots
-library(xpose)
-library(xpose.nlmixr2)
-library(patchwork)
-
 # load the gof data and xpose it
-xp_fit <- xpose_data_nlmixr2(fit)
+xp_fit <- xpose_data_nlmixr2(fit, quiet=TRUE)
 
+```
+::: columns
+::: {.column width="40%"}
+ - Something wicked
+ - Somthing wicked
+ - Something wicked
+:::
+::: {.column width="60%"}
+```{r}
+#| label: pred vs dv
+#| fig-height: 7
 plt1 <- (
     dv_vs_pred(xp_fit, type = "p") + 
-        labs(title = "", subtitle = "", caption = "") + 
-        theme_mk772()
+        labs(title = "", subtitle = "", caption = "") 
         )
 plt2 <- (
     dv_vs_ipred(xp_fit, type = "p") +
-        labs(title = "", subtitle = "", caption = "") + 
-        theme_mk772()
+        labs(title = "", subtitle = "", caption = "")  
     )
 
-plt1 | plt2
+(plt1 | plt2) & theme_bw()
 ```
+:::
+:::
 
-## Goodness of fit 2 -- IWRES
+## Individual Weighted Residuals
 
+```{r}
+#| echo: false
+#| results: "hide"
+xp_tad <- set_var_types(xp_fit, idv = "TAD") 
+```
+::: columns
+::: {.column width="40%"}
+ - Something wicked
+ - Somthing wicked
+ - Something wicked
+:::
+::: {.column width="60%"}
 ```{r}
 
 #| label: pred v/s DV
-#| eval: false
 #| message: false
+#| fig-height: 7
 plt1 <- (
     res_vs_pred(xp_fit, res = "IWRES", type="p") + 
-        labs(title = "", subtitle = "", caption = "") + 
-        theme_mk772()
+        labs(title = "", subtitle = "", caption = "") 
         )
-
-
-xp_tad <- set_var_types(xp_fit, idv = "TAD") 
         
 plt2  <- (
     res_vs_idv(xp_tad, res = "IWRES", type = "p") + 
-        labs(title = "", subtitle = "", caption= "") + 
-        theme_mk772()
+        labs(title = "", subtitle = "", caption= "") 
         )
 
-
-plt1 | plt2
+(plt1 | plt2) & theme_bw()
 ```
 ---
+:::
+:::
 
-## Goodness of fit 3 -- iwres
-
+## Residual Distribution 
+::: columns
+::: {.column width="40%"}
+- something wicked
+- something wicked
+- something wicked
+:::
+::: {.column width="60%"}
 ```{r}
 #| label: iwres-health
 #| message: false
 #| warning: false
-
-library(xpose)
+#| fig-height: 7
 
 p_iwres_hist <- res_distrib(
   xp_fit, res = "IWRES", type = "h", caption = NULL) +
-    labs(y = "Density", title = "", subtitle = "", caption = "") +
-    theme_mk772() 
+    labs(y = "Density", title = "", subtitle = "", caption = "")  
 
 p_iwres_qq <- res_qq(
   xp_fit, res = "IWRES", type = "p", caption = NULL) + 
-    labs(title = "", subtitle = "", y = "Quantiles of IWRES") +
-    theme_mk772() 
+    labs(title = "", subtitle = "", y = "Quantiles of IWRES") 
 
-(p_iwres_hist | p_iwres_qq) 
+(p_iwres_hist | p_iwres_qq) & theme_bw()
 ```
-
-## Goodness of fit 4 -- eta 
-
+:::
+:::
+## IIV Distribution 
+::: {.row height="60%"}
 ```{r}
 #| label: eta-health
 #| message: false
 #| warning: false
-
-library(xpose.nlmixr2)
-library(xpose)
-library(patchwork)
 
 p_eta_hist <- (
     eta_distrib(
         xp_fit, type = "h", ncol = 2, 
         nrow = 1, page = 1) +
     labs(title = "", subtitle = "", caption = "", 
-         x = "Value", y = "Density") + 
-    theme_mk772()
+         x = "Value", y = "Density") 
     )
 
 p_eta_qq <- (
     eta_qq(
         xp_fit, type = "p", ncol = 2, 
         nrow = 1, page = 1, caption = NULL) + 
-    labs(title = "", subtitle = "") + 
-    theme_mk772()
+    labs(title = "", subtitle = "") 
     )
 
 # 2×2 layout: top row = two ETA histograms; bottom row = two ETA QQ plots
-(p_eta_hist / p_eta_qq)
+(p_eta_hist / p_eta_qq) & theme_bw()
 ```
-
-## VPC 1: Visual predictive checks
-
+:::
+::: rows
+::: {.row height="40%"}
+something wicked. something wicked. something wicked
+:::
+:::
+# Visual Predictive Checks 
+## Pooled Fits
 ```{r}
-#| label: vpc-pc
+#| label: run vpc-pc
 #| message: false
 #| warning: false
-#| fig-cap: "Prediction-corrected VPC (n = 300)"
-
-library(nlmixr2plot)
-library(patchwork)
-
+#| echo: false
+#| results: "hide"
 set.seed(42)
 
 vpc1 <- vpcPlot(
@@ -430,7 +376,7 @@ vpc1 <- vpcPlot(
   pred_corr = TRUE,    # prediction-corrected VPC
   idv = "time",         # independent variable column in your data
   show=list(obs_dv=TRUE)
-) + labs(x = "Time", y = "DV") + theme_mk772()
+) + labs(x = "Time", y = "DV") 
 
 vpc2 <- vpcPlot(
   fit,                 # your nlmixr2 SAEM fit object
@@ -438,16 +384,30 @@ vpc2 <- vpcPlot(
   pred_corr = TRUE,    # prediction-corrected VPC
   idv = "tad",         # independent variable column in your data
   show=list(obs_dv=TRUE)
-) + labs(x = "Time after dose", y = "DV") + theme_mk772()
+) + labs(x = "Time after dose", y = "DV") 
+```
+::: columns
+::: {.column width="40%"}
+- something wicked
+- something wicked
+- something wicked
+:::
+::: {.column width="60%"}
+```{r}
+#| label: vpc-pc
+#| message: false
+#| warning: false
+#| fig-height: 7
 
-
-vpc1 / vpc2
+(vpc1 / vpc2) & theme_bw()
 ```
  
-## VPC 2: Individual fit:
-
+:::
+:::
+## Individual Fits 
 ```{r}
- 
+ #| label: individual-fits
+ #| fig-height: 10
  df <- fit |> as_tibble()
 
   # for reproducibility
@@ -460,23 +420,11 @@ plt <- ind_df |>
   geom_line(aes(y = IPRED, linetype = "IPRED")) +
   geom_line(aes(y = PRED,  linetype = "PRED")) +
   scale_linetype_manual(values = c(IPRED = 1, PRED = 2), name = "") +
-  facet_wrap(~ ID, ncol = 2, scales = "free_y") +
+  facet_wrap(~ ID, ncol = 2, scales = "fixed") +
   labs(x = "Time", y = "DV", title = "Individual fits (6 random IDs)")+
-  theme_mk772() +
+  theme_bw() +
   theme(legend.position = "bottom")
 
 plt
-
 ```  
 
-
-# Next steps (placeholders for new chats)
-
-
-- **2) Uncertainty** — bootstrap for parameters and exposures. -- Not doing it
-- **3) Regimen simulations** — exposure tables (AUC, Cmax, Ctrough).
-- **4) PTA curves** — probability of target attainment vs regimen.
-- **5) Power/sample size** — simulation-based operating characteristics.
-- **6) Optimal sampling** — schedule tweaks and RSE impact.
-- **7) Robustness** — sensitivity to NTR/MTT and error model.
-- **8) Shiny** — wrap dose/interval/WT → exposure/PTA UI.

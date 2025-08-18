@@ -37,12 +37,12 @@ p<- (
     geom_boxplot(outlier.size = 0.4, width = 0.7) +
     facet_grid(rows = vars(metric), cols = vars(interval), scales = "free_y") +
     scale_y_continuous(transform = scales::pseudo_log_trans()) +
-    scale_colour_manual(values = c("yes" = "grey50", "no" = "black")) +
+    scale_colour_manual(values = c("yes" = "#d33682", "no" = "grey30")) +
     labs(
       x = "Dose (mg)",
       y = "Value",
-      title = "Exposure Metrics by Dose",
-      subtitle = "Faceted by metric (rows) and dosing interval (columns)"
+      #title = "Exposure Metrics by Dose",
+      #subtitle = "Faceted by metric (rows) and dosing interval (columns)"
     ) +
     theme_bw() +
     theme(
@@ -53,7 +53,7 @@ p<- (
       axis.title.x = element_text(margin = margin(t = 8))
   )
 )
-
-dir.create("results", showWarnings = FALSE)
-ggsave(out_png, p, width = 10, height = 8, dpi = 300)
+p
+#dir.create("results", showWarnings = FALSE)
+#ggsave(out_png, p, width = 10, height = 8, dpi = 300)
 cat(glue("✅ Wrote faceted exposure plot: {out_png}\n"))

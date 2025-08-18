@@ -35,10 +35,11 @@ if (use_ctr_trough) {
   plt <- ggplot(pta_A, aes(x = factor(dose_mg), y = PTA, group = factor(ii_h))) +
     geom_point() + geom_line(aes(linetype = factor(ii_h))) +
     scale_y_continuous(labels = scales::percent_format()) +
-    labs(x = "Dose (mg)", y = "PTA", linetype = "Interval (h)",
+    labs(x = "Dose (mg)", y = "P(Target Attainment)", linetype = "Interval (h)",
          title = "PTA by Dose and Interval",
-         subtitle = unique(pta_A$target)) +
-    theme_bw()
+         subtitle = glue("{unique(pta_A$target)} mg/mL" )) +
+    theme_bw() +
+    theme(legend.position = "bottom")
   #out <- "results/pta_ctr_trough.png"
   #ggsave(out, plt, width = 7, height = 4.5, dpi = 300)
   # cat(glue("✅ Wrote PTA plot: {out}\n"))
@@ -48,8 +49,8 @@ if (use_ctr_trough) {
     #facet_wrap(~ii_h, labeller = label_both) +
     #scale_x_log10() +
     scale_y_continuous(labels = scales::percent_format()) +
-    labs(x = "MIC (mg/L)", y = "PTA", color = "Dose (mg)",
-         title = "PTA vs MIC",
+    labs(x = "MIC (mg/L)", y = "P(Target Attainment)", color = "Dose (mg)",
+         title = "PTA by MIC",
          subtitle = unique(pta_B$target)) +
     theme_bw()
   #out <- "results/pta_auc_mic.png"
