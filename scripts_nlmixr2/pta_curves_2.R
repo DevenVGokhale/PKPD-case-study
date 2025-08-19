@@ -13,8 +13,8 @@ suppressPackageStartupMessages({
 # User settings
 # =============================================================================
 in_rds         <- "results/exposure_summary.rds"
-use_ctr_trough <- TRUE              # TRUE = Option A; FALSE = Option B
-ctr_trough_thr <- 2.0                # mg/L, if using Option A
+use_ctr_trough <- FALSE              # TRUE = Option A; FALSE = Option B
+ctr_trough_thr <- 0.1               # mg/L, if using Option A
 
 # Option B (AUC/MIC target) settings:
 MIC_values   <- 2^(seq(-3, 0, by = 0.1))  # 0.125 .. 1 mg/L (dense grid)
@@ -78,6 +78,7 @@ if (use_ctr_trough) {
     geom_errorbar(aes(ymin = PTA_lo, ymax = PTA_hi), width = 0.15, alpha = 0.6) +
     geom_point(size = 2) +
     geom_line() +
+    geom_hline(yintercept = 0.5, colour = "red") +
     scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
     labs(
       x = "Dose (mg)", y = "P(Target Attainment)",
@@ -118,6 +119,8 @@ if (use_ctr_trough) {
                 alpha = 0.18, color = NA) +
     geom_line(size = 0.9) +
     geom_point(size = 1.4) +
+    geom_hline(yintercept = 0.5, linetype = "dashed") +
+    geom_vline(xintercept = 0.1, linetype = "dashed") +
     # If you want log-x, uncomment:
     # scale_x_log10() +
     scale_y_continuous(labels = scales::percent_format(), limits = c(0, 1)) +
