@@ -1,7 +1,6 @@
 *.rds
 *.csv
 *.txt
-*.json
 *.css
 *.pdf
 *.rdb
