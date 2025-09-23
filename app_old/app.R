@@ -37,7 +37,7 @@ model <- rxode2({
   growth   = KIN * (1 - B / KMAX);
   d/dt(B)   = B * growth * (1 - killFrac);
 
-  d/dt(RES) = LAMBDA * (S * Cp/(EC50+Cp) - RES);
+  d/dt(RES) = LAMBDA * (S - RES);
 
   Blog10 = log10(B + 1e-12);
 })
@@ -122,6 +122,11 @@ ui <- fluidPage(
         tabPanel("Resistance diagnostics",
           plotOutput("res_plot", height = 280),
           plotOutput("kill_plot", height = 280)
+        ),
+        tabPanel("Model diagram",
+          # If you move the file to www/, you can instead do:
+          # tags$img(src = "pkpd_model.png", style = "max-width: 100%; height: auto;"),
+          imageOutput("model_diagram", height = "auto")
         )
       )
     )
@@ -182,7 +187,7 @@ server <- function(input, output, session) {
       # PD with IIV on KIN; inhibitory params & resistance cap
       KIN    = input$TVKIN * exp(eta_kin),
       KMAX   = input$KMAX,
-      KILL   = input$KILL,   # renamed from IMAX
+      KILL   = input$KILL,
       EC50   = input$EC50,
       S      = input$S,
       LAMBDA = input$LAMBDA
@@ -221,7 +226,7 @@ server <- function(input, output, session) {
   init_states <- reactive({
     c(A0 = 0, TR1 = 0, TR2 = 0, TR3 = 0,
       A1 = 0, A2 = 0, A3 = 0,
-      B  = input$B0,  # was fixed at 1e6
+      B  = input$B0,
       RES = 0)
   })
 
@@ -384,6 +389,21 @@ server <- function(input, output, session) {
       labs(x = "Time (h)", y = "killFrac", title = "Instantaneous kill fraction") +
       theme_bw()
   })
+
+  # ----------------------------
+  # Model diagram tab (reads pkpd_model.png from app folder)
+  # ----------------------------
+  output$model_diagram <- renderImage({
+    path <- normalizePath("pkpd_model.png", mustWork = FALSE)
+    validate(need(file.exists(path), "Place 'pkpd_model.png' in the app folder."))
+    list(
+      src = path,
+      contentType = "image/png",
+      alt = "PK/PD model diagram",
+      width = "auto",
+      height = "auto"
+    )
+  }, deleteFile = FALSE)
 }
 
 shinyApp(ui, server)
