@@ -16,24 +16,24 @@ fk_mod_path <- "./FribergKarlsson/FribergKarlsson.stan"
 
 fk_mod <- cmdstan_model(fk_mod_path)
 
-# fit <- fk_mod$sample(
-#   data = data,
-#   chains = 1,
-#   iter_warmup = 1000,
-#   iter_sampling = 1000,
-#   refresh = 5,
-#   init = init_2,
-#   seed = 42
-# )
-
-fit <- fk_mod$variational(
+fit <- fk_mod$sample(
   data = data,
-  init = init,
-  iter = 10000,
-  output_samples = 1000,
+  chains = 1,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
   refresh = 5,
+  init = init_2,
   seed = 42
 )
+
+# fit <- fk_mod$variational(
+#   data = data,
+#   init = init,
+#   iter = 10000,
+#   output_samples = 1000,
+#   refresh = 5,
+#   seed = 42
+# )
 
 
 
